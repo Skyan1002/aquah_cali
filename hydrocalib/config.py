@@ -27,15 +27,8 @@ PARAM_BOUNDS = {
     "alpha0": (0.0, 3.0),
 }
 
-# Maximum relative step allowed per parameter update
-MAX_REL_STEP = {
-    "leaki": 3.0,
-    "isu": 3.0,
-    "ke": 2.0,
-    "th": 2.0,
-    "wm": 2.0,
-    "_default": 1.5,
-}
+# Parameters that remain fixed during calibration
+FROZEN_PARAMETERS = {"th", "iwu", "isu"}
 
 # Default simulation layout
 DEFAULT_SIM_FOLDER = "cali_set/ky_03302000_2018"

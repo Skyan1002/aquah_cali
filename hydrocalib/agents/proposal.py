@@ -11,12 +11,34 @@ from ..config import LLM_MODEL_DEFAULT
 from ..parameters import ParameterSet
 
 
-PROPOSAL_SYSTEM_PROMPT = """You are a hydrologic calibration strategist.
-Given current metrics and history, propose diverse parameter update strategies.
-Return STRICT JSON with a `candidates` list; each candidate needs an `id`,
-`goal` (short description) and `updates` mapping parameter names to either
-numbers or {"op": "*|+|-|=", "value": number} for multiplicative/additive adjustments.
-Keep proposals safe, within hydrologic intuition, and ensure diversity."""
+EF5_PARAMETER_GUIDE = (
+    "EF5 Parameter Overview for Calibration\n"
+    "WM controls the total soil water storage capacity; higher WM increases infiltration and reduces runoff. "
+    "B defines the shape of the variable infiltration curve; larger B yields more surface runoff for a given soil moisture. "
+    "IM is the impervious area fraction—higher values reduce infiltration and increase runoff. "
+    "KE scales potential evapotranspiration (PET); larger KE increases evaporation and decreases runoff. "
+    "FC is the saturated hydraulic conductivity; higher FC allows faster infiltration, reducing surface flow. "
+    "IWU sets the initial soil moisture; too high a value can exaggerate early runoff. "
+    "TH determines the drainage threshold for channel initiation; a larger TH produces fewer, coarser channels. "
+    "UNDER controls interflow velocity—higher values accelerate subsurface flow. "
+    "LEAKI defines the leakage rate from the interflow layer; higher LEAKI speeds lateral drainage. "
+    "ISU is the initial interflow storage; nonzero values may create unrealistic early peaks. "
+    "ALPHA and BETA are routing parameters in the discharge equation Q = αA^β; increasing either slows wave propagation and broadens flood peaks. "
+    "ALPHA0 applies the same relationship for non-channel cells. "
+    "Together, these parameters govern infiltration, storage, and routing. During calibration, adjust WM, B, IM, and FC to shape runoff volume; "
+    "tune KE for evapotranspiration balance; and modify ALPHA, BETA, UNDER, and LEAKI to match hydrograph timing and attenuation."
+)
+
+
+PROPOSAL_SYSTEM_PROMPT = (
+    "You are a hydrologic calibration strategist."
+    "\nGiven current metrics, history, and images, propose diverse parameter update strategies."
+    "\nReturn STRICT JSON with a `candidates` list; each candidate needs an `id`, `goal` (short description) and `updates` mapping"
+    " parameter names to either numbers or {\"op\": \"*|+|-|=\", \"value\": number} for multiplicative/additive adjustments."
+    "\nMake every candidate explore a clearly different direction within the allowed parameter bounds; large steps are permitted."
+    "\nDo NOT modify TH, IWU, or ISU—those parameters remain fixed."
+    "\n" + EF5_PARAMETER_GUIDE
+)
 
 
 class ProposalAgent:

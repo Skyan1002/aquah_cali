@@ -12,11 +12,21 @@ from .peak_events import _read_series
 from .config import EVENTS_FOR_AGGREGATE
 
 
+def safe_corrcoef(sim: np.ndarray, obs: np.ndarray) -> float:
+    if sim.size < 2 or obs.size < 2:
+        return float("nan")
+    sim_std = float(np.std(sim))
+    obs_std = float(np.std(obs))
+    if sim_std == 0 or obs_std == 0:
+        return float("nan")
+    return float(np.corrcoef(sim, obs)[0, 1])
+
+
 def _kge_components(sim: np.ndarray, obs: np.ndarray) -> Tuple[float, float, float]:
     obs_mean = np.mean(obs)
     sim_mean = np.mean(sim)
     beta = sim_mean / obs_mean if obs_mean else np.nan
-    r = np.corrcoef(sim, obs)[0, 1] if len(sim) > 1 else np.nan
+    r = safe_corrcoef(sim, obs)
     sim_std = np.std(sim)
     obs_std = np.std(obs)
     gamma = (sim_std / sim_mean) / (obs_std / obs_mean) if sim_mean and obs_mean and obs_std else np.nan
@@ -44,7 +54,7 @@ def read_metrics_from_csv(csv_path: str,
 
     den = np.sum((o - np.mean(o)) ** 2)
     nse = float(1.0 - np.sum((o - s) ** 2) / den) if den > 0 else float("nan")
-    cc = float(np.corrcoef(o, s)[0, 1]) if len(o) > 1 else float("nan")
+    cc = safe_corrcoef(s.to_numpy(), o.to_numpy())
     kge_val = kge(s.to_numpy(), o.to_numpy())
 
     s_peak = float(np.max(s)) if len(s) else float("nan")
@@ -117,7 +127,7 @@ def compute_event_metrics(csv_path: str,
         obs = sub[obs_col].to_numpy()
         den = float(np.sum((obs - np.mean(obs)) ** 2))
         nse = float(1.0 - np.sum((obs - sim) ** 2) / den) if den > 0 else np.nan
-        cc = float(np.corrcoef(obs, sim)[0, 1]) if len(obs) > 1 else np.nan
+        cc = safe_corrcoef(sim, obs)
         kge_val = kge(sim, obs)
 
         s_pk = float(np.max(sim)) if len(sim) else np.nan
@@ -167,4 +177,5 @@ __all__ = [
     "compute_event_metrics",
     "aggregate_event_metrics",
     "kge",
+    "safe_corrcoef",
 ]

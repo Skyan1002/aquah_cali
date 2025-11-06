@@ -9,9 +9,8 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr
 
-from .metrics import _series_window, compute_event_metrics
+from .metrics import _series_window, safe_corrcoef
 from .peak_events import _read_series
 
 
@@ -20,14 +19,19 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
     df['Time'] = pd.to_datetime(df['Time'])
 
     valid_data = df.dropna(subset=['Discharge(m^3 s^-1)', 'Observed(m^3 s^-1)'])
-    cc, _ = pearsonr(valid_data['Discharge(m^3 s^-1)'], valid_data['Observed(m^3 s^-1)'])
+    if valid_data.empty:
+        cc = float('nan')
+    else:
+        sim = valid_data['Discharge(m^3 s^-1)'].to_numpy()
+        obs = valid_data['Observed(m^3 s^-1)'].to_numpy()
+        cc = safe_corrcoef(sim, obs)
 
     observed = valid_data['Observed(m^3 s^-1)']
     simulated = valid_data['Discharge(m^3 s^-1)']
     mean_observed = observed.mean()
     numerator = np.sum((observed - simulated) ** 2)
     denominator = np.sum((observed - mean_observed) ** 2)
-    nsce = 1 - (numerator / denominator)
+    nsce = 1 - (numerator / denominator) if denominator else float('nan')
 
     plt.rcParams.update({'font.family': 'serif', 'font.size': 16})
     fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
@@ -41,12 +45,19 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
 
     ax1.plot(df['Time'], df['Discharge(m^3 s^-1)'], 'b-', label='Simulated Discharge', linewidth=2)
     ax1.scatter(df['Time'], df['Observed(m^3 s^-1)'], color='black', s=10, label='Observed Discharge')
-    max_discharge = max(df['Discharge(m^3 s^-1)'].max(), df['Observed(m^3 s^-1)'].max())
-    ax1.set_ylim(0, max_discharge * 2)
+    discharge_candidates = [df['Discharge(m^3 s^-1)'].max(), df['Observed(m^3 s^-1)'].max()]
+    discharge_finite = [v for v in discharge_candidates if np.isfinite(v) and v is not None]
+    if discharge_finite:
+        max_discharge = max(discharge_finite)
+        ax1.set_ylim(0, max_discharge * 2)
     ax2 = ax1.twinx()
-    ax2.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
-    max_precip = df['Precip(mm h^-1)'].max()
-    ax2.set_ylim(max_precip * 2, 0)
+    if 'Precip(mm h^-1)' in df.columns:
+        ax2.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
+        max_precip = df['Precip(mm h^-1)'].max()
+    else:
+        max_precip = np.nan
+    if np.isfinite(max_precip) and max_precip > 0:
+        ax2.set_ylim(max_precip * 2, 0)
     ax1.set_ylabel('Streamflow (m³/s)', color='b', fontsize=18)
     ax2.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
     ax1.set_title('Hydrograph with Precipitation (Normal Scale)', fontsize=20)
@@ -61,8 +72,10 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
     ax3.scatter(df['Time'], df['Observed(m^3 s^-1)'], color='black', s=4, label='Observed Discharge')
     ax3.set_yscale('log')
     ax4 = ax3.twinx()
-    ax4.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
-    ax4.set_ylim(max_precip * 2, 0)
+    if 'Precip(mm h^-1)' in df.columns:
+        ax4.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
+    if np.isfinite(max_precip) and max_precip > 0:
+        ax4.set_ylim(max_precip * 2, 0)
     ax3.set_xlabel('Time', fontsize=18)
     ax3.set_ylabel('Streamflow (m³/s) - Log Scale', color='b', fontsize=18)
     ax4.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
@@ -138,7 +151,8 @@ def plot_event_windows(csv_path: str,
 
         width_days = _bar_width_days(sub.index)
         max_precip = sub[precip_col].max() if has_precip else np.nan
-        obs_peak_time = sub[obs_col].idxmax()
+        obs_series = sub[obs_col].dropna()
+        obs_peak_time = obs_series.idxmax() if not obs_series.empty else (sub.index[0] if not sub.empty else None)
 
         sub_log = sub.copy()
         sub_log[obs_col] = sub_log[obs_col].where(sub_log[obs_col] > 0, np.nan)
@@ -150,11 +164,12 @@ def plot_event_windows(csv_path: str,
         plt.rcParams.update({"font.family": "serif", "font.size": 13})
         fig, (ax_lin, ax_log) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-        ymax_lin = np.nanmax([
-            sub[obs_col].max(),
-            *(sub[c].max() for c in sim_cols),
-            *( [sub[discharge_col].max()] if has_discharge else [] ),
-        ])
+        ymax_candidates = [sub[obs_col].max()]
+        ymax_candidates.extend(sub[c].max() for c in sim_cols)
+        if has_discharge:
+            ymax_candidates.append(sub[discharge_col].max())
+        finite_ymax = [v for v in ymax_candidates if np.isfinite(v) and v is not None]
+        ymax_lin = max(finite_ymax) if finite_ymax else np.nan
         ax_lin.plot(sub.index, sub[obs_col], label="Observed", linewidth=2, color="k")
         if has_discharge and sub[discharge_col].notna().any():
             ax_lin.plot(sub.index, sub[discharge_col], label=discharge_col, linewidth=1.8)
@@ -162,16 +177,19 @@ def plot_event_windows(csv_path: str,
             ax_lin.plot(sub.index, sub[c], label=c, linewidth=1.6)
         if np.isfinite(ymax_lin) and ymax_lin > 0:
             ax_lin.set_ylim(0, ymax_lin * 2)
-        ax_lin.axvline(obs_peak_time, linestyle="--", alpha=0.7, color="k", label="Obs peak")
-        for c in ([discharge_col] if has_discharge else []) + sim_cols:
-            try:
-                tpk = sub[c].idxmax()
-                lag_h = (tpk - obs_peak_time).total_seconds() / 3600.0
+        if obs_peak_time is not None:
+            ax_lin.axvline(obs_peak_time, linestyle="--", alpha=0.7, color="k", label="Obs peak")
+        if obs_peak_time is not None and np.isfinite(ymax_lin) and ymax_lin > 0:
+            for c in ([discharge_col] if has_discharge else []) + sim_cols:
+                series = sub[c].dropna() if c in sub else pd.Series(dtype=float)
+                if series.empty:
+                    continue
+                tpk = series.idxmax()
+                lag_h = (tpk - obs_peak_time).total_seconds() / 3600.0 if obs_peak_time is not None else np.nan
                 ax_lin.axvline(tpk, linestyle=":", alpha=0.7)
-                ax_lin.text(tpk, ymax_lin * 2, f"lag={lag_h:+.1f} h",
-                            rotation=90, va="bottom", ha="right", fontsize=8)
-            except Exception:
-                pass
+                if np.isfinite(lag_h):
+                    ax_lin.text(tpk, ymax_lin * 2, f"lag={lag_h:+.1f} h",
+                                rotation=90, va="bottom", ha="right", fontsize=8)
 
         if has_precip and sub[precip_col].notna().any():
             axp_lin = ax_lin.twinx()
@@ -190,11 +208,12 @@ def plot_event_windows(csv_path: str,
         else:
             ax_lin.legend(loc="upper right", fontsize=11)
 
-        ymax_log = np.nanmax([
-            sub_log[obs_col].max(),
-            *(sub_log[c].max() for c in sim_cols),
-            *( [sub_log[discharge_col].max()] if has_discharge else [] ),
-        ])
+        ymax_candidates_log = [sub_log[obs_col].max()]
+        ymax_candidates_log.extend(sub_log[c].max() for c in sim_cols)
+        if has_discharge:
+            ymax_candidates_log.append(sub_log[discharge_col].max())
+        finite_ymax_log = [v for v in ymax_candidates_log if np.isfinite(v) and v is not None]
+        ymax_log = max(finite_ymax_log) if finite_ymax_log else np.nan
         ax_log.plot(sub_log.index, sub_log[obs_col], label="Observed", linewidth=2, color="k")
         if has_discharge and sub_log[discharge_col].notna().any():
             ax_log.plot(sub_log.index, sub_log[discharge_col], label=discharge_col, linewidth=1.8)
@@ -211,17 +230,19 @@ def plot_event_windows(csv_path: str,
                 ax_log.set_ylim(ymin_log, ymax_log * 2)
             else:
                 ax_log.set_ylim(bottom=None, top=ymax_log * 2)
-        ax_log.axvline(obs_peak_time, linestyle="--", alpha=0.7, color="k", label="Obs peak")
-        for c in ([discharge_col] if has_discharge else []) + sim_cols:
-            try:
-                tpk = sub[c].idxmax()
-                lag_h = (tpk - obs_peak_time).total_seconds() / 3600.0
+        if obs_peak_time is not None:
+            ax_log.axvline(obs_peak_time, linestyle="--", alpha=0.7, color="k", label="Obs peak")
+        if obs_peak_time is not None and np.isfinite(ymax_log) and ymax_log > 0:
+            for c in ([discharge_col] if has_discharge else []) + sim_cols:
+                series = sub[c].dropna() if c in sub else pd.Series(dtype=float)
+                if series.empty:
+                    continue
+                tpk = series.idxmax()
+                lag_h = (tpk - obs_peak_time).total_seconds() / 3600.0 if obs_peak_time is not None else np.nan
                 ax_log.axvline(tpk, linestyle=":", alpha=0.7)
-                if np.isfinite(ymax_log) and ymax_log > 0:
+                if np.isfinite(lag_h):
                     ax_log.text(tpk, ymax_log * 2, f"lag={lag_h:+.1f} h",
                                 rotation=90, va="bottom", ha="right", fontsize=8)
-            except Exception:
-                pass
 
         if has_precip and sub[precip_col].notna().any():
             axp_log = ax_log.twinx()

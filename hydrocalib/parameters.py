@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable
 
-from .config import PARAM_BOUNDS, MAX_REL_STEP
+from .config import FROZEN_PARAMETERS, PARAM_BOUNDS
 
 
 def safe_clip(name: str, value: float) -> float:
@@ -14,12 +14,6 @@ def safe_clip(name: str, value: float) -> float:
 
 
 def apply_step_guard(name: str, old: float, new: float) -> float:
-    if old <= 0:
-        return safe_clip(name, new)
-    rel = abs(new / old)
-    limit = MAX_REL_STEP.get(name, MAX_REL_STEP["_default"])
-    if rel > limit:
-        new = old * limit if new > old else old / limit
     return safe_clip(name, new)
 
 
@@ -40,7 +34,7 @@ class ParameterSet:
     def apply_updates(self, updates: Dict[str, float]) -> "ParameterSet":
         new_vals = self.values.copy()
         for k, v in updates.items():
-            if k not in new_vals:
+            if k not in new_vals or k in FROZEN_PARAMETERS:
                 continue
             new_vals[k] = apply_step_guard(k, new_vals[k], float(v))
         return ParameterSet(new_vals)
@@ -60,9 +54,11 @@ class ParameterSet:
         return self.values[item]
 
     def __setitem__(self, key: str, value: float) -> None:
+        if key in FROZEN_PARAMETERS:
+            return
         self.values[key] = safe_clip(key, float(value))
 
-def __repr__(self) -> str:
+    def __repr__(self) -> str:
         return f"ParameterSet({self.values!r})"
 
 

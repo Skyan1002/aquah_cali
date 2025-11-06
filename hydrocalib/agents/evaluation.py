@@ -8,17 +8,19 @@ from typing import Any, Dict, List
 from .types import RoundContext
 from .utils import b64_image, coerce_updates, extract_json_block, get_client
 from ..config import LLM_MODEL_REASONING
+from .proposal import EF5_PARAMETER_GUIDE
 from ..parameters import ParameterSet
 
 
-EVALUATION_SYSTEM_PROMPT = """You are a hydrologic calibration reviewer.
-You receive initial candidate parameter updates and recent history data.
-Assess the candidates, adjust them for diversity and safety, and output
-STRICT JSON with `refined_candidates`: list of items each containing `id`,
-`origin` (which proposal inspired it), `rationale`, and `updates` mapping
-parameters to numbers or operation dictionaries. Encourage diverse
-strategies (e.g., timing-first, peak-height adjustments, baseflow tuning).
-Ensure each refined candidate remains within hydrologic bounds."""
+EVALUATION_SYSTEM_PROMPT = (
+    "You are a hydrologic calibration reviewer."
+    "\nYou receive initial candidate parameter updates, recent history data, and performance metrics."
+    "\nAssess the candidates, adjust them for diversity and safety, and output STRICT JSON with `refined_candidates`:"
+    " list items containing `id`, `origin` (which proposal inspired it), `rationale`, and `updates` mapping parameters to numbers"
+    " or operation dictionaries. Encourage markedly different strategies (timing focus, peak shaping, baseflow control, etc.)."
+    "\nAll updates must stay within hydrologic bounds; TH, IWU, and ISU are frozen and must remain unchanged."
+    "\n" + EF5_PARAMETER_GUIDE
+)
 
 
 class EvaluationAgent:

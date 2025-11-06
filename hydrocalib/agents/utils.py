@@ -11,6 +11,7 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from ..config import FROZEN_PARAMETERS
 from ..parameters import ParameterSet, apply_step_guard
 
 load_dotenv()
@@ -32,7 +33,7 @@ def extract_json_block(text: str) -> Dict[str, Any]:
 def coerce_updates(params: ParameterSet, updates: Dict[str, Any]) -> ParameterSet:
     new_vals = params.values.copy()
     for name, spec in updates.items():
-        if name not in new_vals:
+        if name not in new_vals or name in FROZEN_PARAMETERS:
             continue
         old = new_vals[name]
         if isinstance(spec, dict) and "op" in spec and "value" in spec:
