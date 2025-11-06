@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from .types import RoundContext
 from .utils import b64_image, coerce_updates, extract_json_block, get_client
-from ..config import LLM_MODEL_DEFAULT, TEMPERATURE_DEFAULT
+from ..config import LLM_MODEL_DEFAULT
 from ..parameters import ParameterSet
 
 
@@ -21,10 +21,8 @@ Keep proposals safe, within hydrologic intuition, and ensure diversity."""
 
 class ProposalAgent:
     def __init__(self,
-                 model: str = LLM_MODEL_DEFAULT,
-                 temperature: float = TEMPERATURE_DEFAULT):
+                 model: str = LLM_MODEL_DEFAULT):
         self.model = model
-        self.temperature = temperature
         self.client = get_client()
 
     def build_prompt(self, context: RoundContext, k: int) -> str:
@@ -55,7 +53,6 @@ class ProposalAgent:
             ]
         response = self.client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
             messages=messages,
         )
         raw = response.choices[0].message.content

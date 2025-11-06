@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from .types import RoundContext
 from .utils import b64_image, coerce_updates, extract_json_block, get_client
-from ..config import LLM_MODEL_REASONING, TEMPERATURE_DEFAULT
+from ..config import LLM_MODEL_REASONING
 from ..parameters import ParameterSet
 
 
@@ -23,10 +23,8 @@ Ensure each refined candidate remains within hydrologic bounds."""
 
 class EvaluationAgent:
     def __init__(self,
-                 model: str = LLM_MODEL_REASONING,
-                 temperature: float = TEMPERATURE_DEFAULT):
+                 model: str = LLM_MODEL_REASONING):
         self.model = model
-        self.temperature = temperature
         self.client = get_client()
 
     def build_prompt(self,
@@ -66,7 +64,6 @@ class EvaluationAgent:
             ]
         response = self.client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
             messages=messages,
         )
         raw = response.choices[0].message.content

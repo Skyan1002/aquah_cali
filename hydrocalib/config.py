@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 LLM_MODEL_DEFAULT = "gpt-5"
-LLM_MODEL_REASONING = "gpt-5.1"  # hypothetical reasoning-focused model name
-TEMPERATURE_DEFAULT = 0.2
+LLM_MODEL_REASONING = "gpt-5"
 
 # Calibration behaviour
 MAX_STEPS_DEFAULT = 20

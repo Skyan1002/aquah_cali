@@ -11,7 +11,6 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from ..config import LLM_MODEL_DEFAULT, LLM_MODEL_REASONING, TEMPERATURE_DEFAULT
 from ..parameters import ParameterSet, apply_step_guard
 
 load_dotenv()
