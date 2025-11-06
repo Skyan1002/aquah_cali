@@ -28,6 +28,9 @@ class SimulationResult:
     csv_path: str
 
 
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+
+
 class SimulationRunner:
     """Prepare control files and execute EF5 simulations."""
 
@@ -36,9 +39,28 @@ class SimulationRunner:
                  ef5_executable: str = "./EF5/bin/ef5",
                  gauge_num: str = DEFAULT_GAUGE_NUM):
         self.simu_folder = simu_folder
-        self.ef5_executable = ef5_executable
+        self.ef5_executable = self._resolve_executable(ef5_executable)
         self.gauge_num = gauge_num
         self._control_template = self._load_template()
+
+    def _resolve_executable(self, exe: str) -> str:
+        env_override = os.getenv("EF5_EXECUTABLE")
+        candidates = []
+        if env_override:
+            candidates.append(Path(env_override))
+        exe_path = Path(exe)
+        if exe_path.is_absolute():
+            candidates.append(exe_path)
+        else:
+            candidates.extend([
+                PACKAGE_ROOT / exe_path,
+                Path(self.simu_folder) / exe_path,
+                Path.cwd() / exe_path,
+            ])
+        for cand in candidates:
+            if cand.exists():
+                return str(cand.resolve())
+        return str(exe)
 
     def _load_template(self) -> str:
         control_path = Path(self.simu_folder) / "control.txt"

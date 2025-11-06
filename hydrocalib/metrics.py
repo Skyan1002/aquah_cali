@@ -17,7 +17,8 @@ def safe_corrcoef(sim: np.ndarray, obs: np.ndarray) -> float:
         return float("nan")
     sim_std = float(np.std(sim))
     obs_std = float(np.std(obs))
-    if sim_std == 0 or obs_std == 0:
+    if (not np.isfinite(sim_std) or not np.isfinite(obs_std)
+            or sim_std <= 1e-12 or obs_std <= 1e-12):
         return float("nan")
     return float(np.corrcoef(sim, obs)[0, 1])
 

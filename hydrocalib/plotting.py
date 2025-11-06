@@ -51,20 +51,25 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
     if discharge_finite:
         max_discharge = max(discharge_finite)
         ax1.set_ylim(0, max_discharge * 2)
-    ax2 = ax1.twinx()
+    precip_series = None
+    max_precip = np.nan
+    ax2 = None
     if 'Precip(mm h^-1)' in df.columns:
-        ax2.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
-        max_precip = df['Precip(mm h^-1)'].max()
-    else:
-        max_precip = np.nan
-    if np.isfinite(max_precip) and max_precip > 0:
-        ax2.set_ylim(max_precip * 2, 0)
+        precip_series = pd.to_numeric(df['Precip(mm h^-1)'], errors='coerce')
+        if precip_series.notna().any() and (precip_series > 0).any():
+            max_precip = float(precip_series.max())
+            ax2 = ax1.twinx()
+            ax2.bar(df['Time'], precip_series, width=width, color='skyblue', alpha=0.6, label='Precipitation')
+            ax2.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
+            ax2.set_ylim(max_precip * 2, 0)
     ax1.set_ylabel('Streamflow (m³/s)', color='b', fontsize=18)
-    ax2.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
     ax1.set_title('Hydrograph with Precipitation (Normal Scale)', fontsize=20)
     lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right', fontsize=16)
+    if ax2 is not None:
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right', fontsize=16)
+    else:
+        ax1.legend(loc='upper right', fontsize=16)
     text_str = f'CC = {cc:.3f}\nNSCE = {nsce:.3f}'
     ax1.text(0.02, 0.85, text_str, transform=ax1.transAxes, fontsize=18,
              bbox=dict(facecolor='white', alpha=0.7, edgecolor='gray'))
@@ -72,18 +77,21 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
     ax3.plot(df['Time'], df['Discharge(m^3 s^-1)'], 'b-', label='Simulated Discharge', linewidth=2)
     ax3.scatter(df['Time'], df['Observed(m^3 s^-1)'], color='black', s=4, label='Observed Discharge')
     ax3.set_yscale('log')
-    ax4 = ax3.twinx()
-    if 'Precip(mm h^-1)' in df.columns:
-        ax4.bar(df['Time'], df['Precip(mm h^-1)'], width=width, color='skyblue', alpha=0.6, label='Precipitation')
-    if np.isfinite(max_precip) and max_precip > 0:
+    ax4 = None
+    if precip_series is not None and np.isfinite(max_precip) and max_precip > 0:
+        ax4 = ax3.twinx()
+        ax4.bar(df['Time'], precip_series, width=width, color='skyblue', alpha=0.6, label='Precipitation')
+        ax4.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
         ax4.set_ylim(max_precip * 2, 0)
     ax3.set_xlabel('Time', fontsize=18)
     ax3.set_ylabel('Streamflow (m³/s) - Log Scale', color='b', fontsize=18)
-    ax4.set_ylabel('Precipitation (mm/h)', color='skyblue', fontsize=18)
     ax3.set_title('Hydrograph with Precipitation (Log Scale)', fontsize=20)
     lines3, labels3 = ax3.get_legend_handles_labels()
-    lines4, labels4 = ax4.get_legend_handles_labels()
-    ax3.legend(lines3 + lines4, labels3 + labels4, loc='upper right', fontsize=16)
+    if ax4 is not None:
+        lines4, labels4 = ax4.get_legend_handles_labels()
+        ax3.legend(lines3 + lines4, labels3 + labels4, loc='upper right', fontsize=16)
+    else:
+        ax3.legend(loc='upper right', fontsize=16)
     ax3.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:00'))
     fig.autofmt_xdate()
 
