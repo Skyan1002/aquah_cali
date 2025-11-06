@@ -35,7 +35,7 @@ parallel.
    generates candidate parameter sets, evaluates them in parallel, and updates
    the history JSON under `<simu_folder>/results/calibration_history.json`.
 
-The manager uses event-level metrics (default: top three peaks) to determine the
-best candidate each round. Hydrograph and per-event figures are generated only
-for the top-performing candidate and are fed back into the LLM agents for the
-next round.
+The manager aggregates per-event metrics (default: top three peaks) **and** the
+full-period NSE/CC/KGE when ranking candidates. Hydrograph and per-event figures
+are generated only for the top-performing candidate and are fed back into the
+LLM agents for the next round.

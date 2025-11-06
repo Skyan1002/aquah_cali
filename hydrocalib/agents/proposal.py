@@ -52,6 +52,7 @@ class ProposalAgent:
             "round": context.round_index,
             "current_params": context.params,
             "aggregate_metrics": context.aggregate_metrics,
+            "full_metrics": context.full_metrics,
             "event_metrics": context.event_metrics,
             "history_summary": context.history_summary,
             "requested_candidates": k,

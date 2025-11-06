@@ -13,6 +13,7 @@ class CandidateRecord:
     candidate_index: int
     params: Dict[str, float]
     metrics: Dict[str, float]
+    full_metrics: Dict[str, float]
     event_metrics: List[Dict[str, Any]]
 
 
@@ -46,6 +47,7 @@ class HistoryStore:
                             "candidate_index": c.candidate_index,
                             "params": c.params,
                             "metrics": c.metrics,
+                            "full_metrics": c.full_metrics,
                             "event_metrics": c.event_metrics,
                         }
                         for c in r.candidates
@@ -62,11 +64,20 @@ class HistoryStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
 
-    def update_best(self, metrics: Dict[str, Any], params: Dict[str, float], round_index: int, candidate_index: int) -> None:
-        if not self.best_metrics or (metrics.get("NSE", float("-inf")) > self.best_metrics.get("metrics", {}).get("NSE", float("-inf"))):
+    def update_best(self,
+                    aggregate_metrics: Dict[str, Any],
+                    full_metrics: Dict[str, Any],
+                    params: Dict[str, float],
+                    round_index: int,
+                    candidate_index: int) -> None:
+        current_best = self.best_metrics.get("aggregate_metrics", {}).get("NSE", float("-inf")) if self.best_metrics else float("-inf")
+        candidate_score = aggregate_metrics.get("NSE", float("-inf"))
+        if candidate_score > current_best:
             self.best_metrics = {
                 "round_index": round_index,
                 "candidate_index": candidate_index,
-                "metrics": metrics,
+                "metrics": aggregate_metrics,
+                "aggregate_metrics": aggregate_metrics,
+                "full_metrics": full_metrics,
                 "params": params,
             }

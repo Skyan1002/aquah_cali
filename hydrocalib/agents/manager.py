@@ -13,7 +13,8 @@ import numpy as np
 from ..config import (DEFAULT_GAUGE_NUM, DEFAULT_PEAK_PICK_KWARGS, DEFAULT_SIM_FOLDER,
                        EVENTS_FOR_AGGREGATE, IMPROVE_PATIENCE, MAX_STEPS_DEFAULT)
 from ..history import CandidateRecord, HistoryStore, RoundRecord
-from ..metrics import aggregate_event_metrics, compute_event_metrics
+from ..metrics import (aggregate_event_metrics, compute_event_metrics,
+                       read_metrics_from_csv)
 from ..parameters import ParameterSet
 from ..peak_events import pick_peak_events
 from ..plotting import plot_event_windows, plot_hydrograph_with_precipitation
@@ -30,6 +31,7 @@ class CandidateOutcome:
     windows: List[Tuple]
     event_metrics: List[Dict[str, float]]
     aggregate_metrics: Dict[str, float]
+    full_metrics: Dict[str, float]
     hydrograph_path: Optional[str] = None
     event_figures: List[str] = field(default_factory=list)
 
@@ -64,14 +66,21 @@ class TwoStageCalibrationManager:
         outcome = self._process_result(baseline_result)
         self._generate_plots(outcome)
         self.best_outcome = outcome
-        self.history.update_best(outcome.aggregate_metrics, outcome.params.values.copy(), 0, 0)
+        self.history.update_best(
+            aggregate_metrics=outcome.aggregate_metrics,
+            full_metrics=outcome.full_metrics,
+            params=outcome.params.values.copy(),
+            round_index=0,
+            candidate_index=0,
+        )
         self.history.save()
 
     def _process_result(self, result: SimulationResult) -> CandidateOutcome:
         windows = pick_peak_events(result.csv_path, n=self.n_peaks, **self.peak_pick_kwargs)
         event_metrics = compute_event_metrics(result.csv_path, windows)
         aggregate = aggregate_event_metrics(event_metrics, top_n=self.n_peaks)
-        return CandidateOutcome(result, result.params, windows, event_metrics, aggregate)
+        full_metrics = read_metrics_from_csv(result.csv_path)
+        return CandidateOutcome(result, result.params, windows, event_metrics, aggregate, full_metrics)
 
     def _generate_plots(self, outcome: CandidateOutcome) -> None:
         outcome.hydrograph_path = plot_hydrograph_with_precipitation(outcome.simulation.csv_path, show=False)
@@ -110,6 +119,7 @@ class TwoStageCalibrationManager:
             round_index=self.round_index,
             params=self.best_outcome.params.values.copy(),
             aggregate_metrics=self.best_outcome.aggregate_metrics,
+            full_metrics=self.best_outcome.full_metrics,
             event_metrics=self.best_outcome.event_metrics[: self.n_peaks],
             history_summary=self._history_summary(),
             description=description,
@@ -123,12 +133,25 @@ class TwoStageCalibrationManager:
         best_idx = -1
         best_score = -math.inf
         for idx, outcome in enumerate(outcomes):
-            nse = outcome.aggregate_metrics.get("NSE", float("nan"))
-            score = nse if np.isfinite(nse) else -math.inf
+            agg = outcome.aggregate_metrics
+            full = outcome.full_metrics
+            nse = agg.get("NSE", float("nan"))
+            if not np.isfinite(nse):
+                continue
+            score = 0.5 * nse
+            full_nse = full.get("NSE", float("nan"))
+            if np.isfinite(full_nse):
+                score += 0.3 * full_nse
+            cc = agg.get("CC", float("nan"))
+            if np.isfinite(cc):
+                score += 0.1 * cc
+            kge = agg.get("KGE", float("nan"))
+            if np.isfinite(kge):
+                score += 0.1 * kge
             if score > best_score:
                 best_idx = idx
                 best_score = score
-        return best_idx
+        return best_idx if best_idx != -1 else 0
 
     def run(self, max_rounds: int = MAX_STEPS_DEFAULT) -> None:
         if self.best_outcome is None:
@@ -165,6 +188,7 @@ class TwoStageCalibrationManager:
                     candidate_index=outcome.simulation.candidate_index,
                     params=outcome.params.values.copy(),
                     metrics=outcome.aggregate_metrics,
+                    full_metrics=outcome.full_metrics,
                     event_metrics=outcome.event_metrics,
                 )
                 for outcome in outcomes
@@ -180,14 +204,25 @@ class TwoStageCalibrationManager:
                 focus=eval_meta.get("focus", ""),
             )
             self.history.rounds.append(round_record)
-            self.history.update_best(best_outcome.aggregate_metrics, best_outcome.params.values.copy(), r, best_outcome.simulation.candidate_index)
+            self.history.update_best(
+                aggregate_metrics=best_outcome.aggregate_metrics,
+                full_metrics=best_outcome.full_metrics,
+                params=best_outcome.params.values.copy(),
+                round_index=r,
+                candidate_index=best_outcome.simulation.candidate_index,
+            )
             self.history.save()
 
+            agg = best_outcome.aggregate_metrics
+            full = best_outcome.full_metrics
             print(
                 f"[Round {r}] Best candidate {best_outcome.simulation.candidate_index}: "
-                f"NSE={best_outcome.aggregate_metrics.get('NSE', float('nan')):.3f} "
-                f"CC={best_outcome.aggregate_metrics.get('CC', float('nan')):.3f} "
-                f"KGE={best_outcome.aggregate_metrics.get('KGE', float('nan')):.3f}"
+                f"event NSE={agg.get('NSE', float('nan')):.3f} "
+                f"event CC={agg.get('CC', float('nan')):.3f} "
+                f"event KGE={agg.get('KGE', float('nan')):.3f} | "
+                f"full NSE={full.get('NSE', float('nan')):.3f} "
+                f"full CC={full.get('CC', float('nan')):.3f} "
+                f"full KGE={full.get('KGE', float('nan')):.3f}"
             )
 
             if r >= IMPROVE_PATIENCE:
