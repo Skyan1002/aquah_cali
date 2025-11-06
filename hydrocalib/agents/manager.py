@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -45,7 +46,8 @@ class TwoStageCalibrationManager:
                  n_peaks: int = EVENTS_FOR_AGGREGATE,
                  include_max_event_images: int = 3,
                  peak_pick_kwargs: Optional[Dict] = None,
-                 history_path: Optional[str] = None):
+                 history_path: Optional[str] = None,
+                 max_workers: Optional[int] = None):
         self.args_obj = args_obj
         self.current_params = ParameterSet.from_object(args_obj)
         self.runner = SimulationRunner(simu_folder=simu_folder, gauge_num=gauge_num)
@@ -60,13 +62,15 @@ class TwoStageCalibrationManager:
         self.best_outcome: Optional[CandidateOutcome] = None
         self.round_index = 0
         self.stall = 0
+        self.max_workers = max_workers
 
     def initialize_baseline(self) -> None:
+        print("[Init] Running baseline simulation…")
         baseline_result = self.runner.run(self.current_params, round_index=0, candidate_index=0)
         outcome = self._process_result(baseline_result)
         self._generate_plots(outcome)
         self.best_outcome = outcome
-        self.history.update_best(
+        improved = self.history.update_best(
             aggregate_metrics=outcome.aggregate_metrics,
             full_metrics=outcome.full_metrics,
             params=outcome.params.values.copy(),
@@ -74,6 +78,19 @@ class TwoStageCalibrationManager:
             candidate_index=0,
         )
         self.history.save()
+        if improved:
+            self._publish_best(outcome)
+        agg = outcome.aggregate_metrics
+        full = outcome.full_metrics
+        print(
+            "[Init] Baseline metrics "
+            f"event NSE={agg.get('NSE', float('nan')):.3f} "
+            f"event CC={agg.get('CC', float('nan')):.3f} "
+            f"event KGE={agg.get('KGE', float('nan')):.3f} | "
+            f"full NSE={full.get('NSE', float('nan')):.3f} "
+            f"full CC={full.get('CC', float('nan')):.3f} "
+            f"full KGE={full.get('KGE', float('nan')):.3f}"
+        )
 
     def _process_result(self, result: SimulationResult) -> CandidateOutcome:
         windows = pick_peak_events(result.csv_path, n=self.n_peaks, **self.peak_pick_kwargs)
@@ -90,6 +107,28 @@ class TwoStageCalibrationManager:
             outcome.windows,
             out_dir=str(peaks_dir),
         )[:self.include_max_event_images]
+
+    def _publish_best(self, outcome: CandidateOutcome) -> None:
+        best_dir = Path(self.runner.simu_folder) / "results" / "best"
+        if best_dir.exists():
+            shutil.rmtree(best_dir)
+        best_dir.mkdir(parents=True, exist_ok=True)
+        if outcome.hydrograph_path:
+            shutil.copy2(outcome.hydrograph_path, best_dir / Path(outcome.hydrograph_path).name)
+        events_dir = best_dir / "events"
+        events_dir.mkdir(exist_ok=True)
+        for fig in outcome.event_figures:
+            fig_path = Path(fig)
+            if fig_path.exists():
+                shutil.copy2(fig_path, events_dir / fig_path.name)
+        summary = {
+            "round_index": outcome.simulation.round_index,
+            "candidate_index": outcome.simulation.candidate_index,
+            "aggregate_metrics": outcome.aggregate_metrics,
+            "full_metrics": outcome.full_metrics,
+            "params": outcome.params.values.copy(),
+        }
+        (best_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
 
     def _history_summary(self, last_k: int = 3) -> str:
         if not self.history.rounds:
@@ -129,25 +168,33 @@ class TwoStageCalibrationManager:
     def _history_payload(self) -> Dict[str, Any]:
         return json.loads(self.history.path.read_text()) if self.history.path.exists() else {}
 
+    def _candidate_score(self, aggregate: Dict[str, float], full: Dict[str, float]) -> float:
+        nse = aggregate.get("NSE", float("nan"))
+        if not np.isfinite(nse):
+            return float("-inf")
+        score = 0.5 * nse
+        full_nse = full.get("NSE", float("nan"))
+        if np.isfinite(full_nse):
+            score += 0.3 * full_nse
+        cc = aggregate.get("CC", float("nan"))
+        if np.isfinite(cc):
+            score += 0.1 * cc
+        kge = aggregate.get("KGE", float("nan"))
+        if np.isfinite(kge):
+            score += 0.1 * kge
+        lag = aggregate.get("lag_hours", float("nan"))
+        if np.isfinite(lag):
+            score -= 0.05 * abs(lag)
+        peak_ratio = aggregate.get("peak_ratio", float("nan"))
+        if np.isfinite(peak_ratio) and peak_ratio > 0:
+            score -= 0.1 * abs(math.log(peak_ratio))
+        return score
+
     def _select_best(self, outcomes: List[CandidateOutcome]) -> int:
         best_idx = -1
         best_score = -math.inf
         for idx, outcome in enumerate(outcomes):
-            agg = outcome.aggregate_metrics
-            full = outcome.full_metrics
-            nse = agg.get("NSE", float("nan"))
-            if not np.isfinite(nse):
-                continue
-            score = 0.5 * nse
-            full_nse = full.get("NSE", float("nan"))
-            if np.isfinite(full_nse):
-                score += 0.3 * full_nse
-            cc = agg.get("CC", float("nan"))
-            if np.isfinite(cc):
-                score += 0.1 * cc
-            kge = agg.get("KGE", float("nan"))
-            if np.isfinite(kge):
-                score += 0.1 * kge
+            score = self._candidate_score(outcome.aggregate_metrics, outcome.full_metrics)
             if score > best_score:
                 best_idx = idx
                 best_score = score
@@ -159,8 +206,16 @@ class TwoStageCalibrationManager:
         for r in range(1, max_rounds + 1):
             self.round_index = r
             context = self._build_context()
+            print(f"[Round {r}] Requesting {self.n_candidates} proposals from proposal agent…")
             proposals = self.proposal_agent.propose(context, self.n_candidates)
             proposal_params = self.proposal_agent.apply_candidates(self.best_outcome.params, proposals)
+            print(f"[Round {r}] Initial proposals and parameter sets:")
+            for idx, (proposal, params) in enumerate(zip(proposals, proposal_params)):
+                goal = proposal.get("goal") or proposal.get("id") or f"cand_{idx}"
+                print(
+                    f"    [Proposal {idx}] goal={goal} updates={proposal.get('updates', {})} "
+                    f"→ params={params.values}"
+                )
 
             refined_candidates, eval_meta = self.evaluation_agent.refine(
                 context,
@@ -172,9 +227,38 @@ class TwoStageCalibrationManager:
             if not refined_params:
                 refined_candidates = proposals
                 refined_params = proposal_params
+            print(f"[Round {r}] Evaluation agent refined parameter sets:")
+            for idx, (candidate, params) in enumerate(zip(refined_candidates, refined_params)):
+                goal = candidate.get("goal") or candidate.get("id") or f"cand_{idx}"
+                print(
+                    f"    [Refined {idx}] goal={goal} updates={candidate.get('updates', {})} "
+                    f"→ params={params.values}"
+                )
 
-            results = run_simulations_parallel(self.runner, refined_params, round_index=r)
+            print(
+                f"[Round {r}] Launching {len(refined_params)} simulations (max_workers={self.max_workers or 'auto'})…"
+            )
+            results = run_simulations_parallel(
+                self.runner,
+                refined_params,
+                round_index=r,
+                max_workers=self.max_workers,
+            )
             outcomes = [self._process_result(res) for res in results]
+
+            print(f"[Round {r}] Candidate performance summary:")
+            for outcome in outcomes:
+                agg = outcome.aggregate_metrics
+                full = outcome.full_metrics
+                score = self._candidate_score(agg, full)
+                print(
+                    f"    [Cand {outcome.simulation.candidate_index}] "
+                    f"score={score:.3f} | event NSE={agg.get('NSE', float('nan')):.3f} "
+                    f"CC={agg.get('CC', float('nan')):.3f} KGE={agg.get('KGE', float('nan')):.3f} "
+                    f"lag={agg.get('lag_hours', float('nan')):.2f}h | "
+                    f"full NSE={full.get('NSE', float('nan')):.3f} CC={full.get('CC', float('nan')):.3f} "
+                    f"KGE={full.get('KGE', float('nan')):.3f}"
+                )
 
             best_idx = self._select_best(outcomes)
             best_outcome = outcomes[best_idx]
@@ -204,7 +288,7 @@ class TwoStageCalibrationManager:
                 focus=eval_meta.get("focus", ""),
             )
             self.history.rounds.append(round_record)
-            self.history.update_best(
+            improved = self.history.update_best(
                 aggregate_metrics=best_outcome.aggregate_metrics,
                 full_metrics=best_outcome.full_metrics,
                 params=best_outcome.params.values.copy(),
@@ -212,6 +296,9 @@ class TwoStageCalibrationManager:
                 candidate_index=best_outcome.simulation.candidate_index,
             )
             self.history.save()
+            if improved:
+                print(f"[Round {r}] New global best found (candidate {best_outcome.simulation.candidate_index}).")
+                self._publish_best(best_outcome)
 
             agg = best_outcome.aggregate_metrics
             full = best_outcome.full_metrics

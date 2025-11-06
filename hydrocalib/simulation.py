@@ -58,9 +58,9 @@ class SimulationRunner:
         return content
 
     def _write_control_file(self, content: str, round_index: int, candidate_index: int) -> str:
-        out_dir = Path(self.simu_folder) / "controls"
+        out_dir = Path(self.simu_folder) / "controls" / f"cali_{round_index:03d}" / f"cand_{candidate_index:02d}"
         out_dir.mkdir(parents=True, exist_ok=True)
-        control_path = out_dir / f"control_r{round_index:03d}_c{candidate_index:02d}.txt"
+        control_path = out_dir / "control.txt"
         control_path.write_text(content)
         return str(control_path)
 
@@ -73,7 +73,8 @@ class SimulationRunner:
         output_dir = self._output_dir(round_index, candidate_index)
         control_content = self._render_control(params, output_dir)
         control_file = self._write_control_file(control_content, round_index, candidate_index)
-        run_ef5(control_file, self.ef5_executable)
+        log_path = Path(output_dir) / "logs" / "ef5.log"
+        run_ef5(control_file, self.ef5_executable, cwd=self.simu_folder, log_path=str(log_path))
         csv_path = self._locate_csv(output_dir)
         if csv_path is None:
             raise FileNotFoundError(f"Simulation output CSV not found in {output_dir}")
@@ -93,13 +94,16 @@ def run_simulations_parallel(runner: SimulationRunner,
                              round_index: int,
                              max_workers: Optional[int] = None) -> List[SimulationResult]:
     results: List[SimulationResult] = []
-    with ThreadPoolExecutor(max_workers=max_workers or len(params_list)) as executor:
+    worker_count = max_workers or min(len(params_list), os.cpu_count() or len(params_list))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_to_idx = {
             executor.submit(runner.run, params, round_index, idx): idx
             for idx, params in enumerate(params_list)
         }
         for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
             result = future.result()
+            print(f"    [Sim] Candidate {idx} completed EF5 run.")
             results.append(result)
     results.sort(key=lambda r: r.candidate_index)
     return results

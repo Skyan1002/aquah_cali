@@ -39,3 +39,16 @@ The manager aggregates per-event metrics (default: top three peaks) **and** the
 full-period NSE/CC/KGE when ranking candidates. Hydrograph and per-event figures
 are generated only for the top-performing candidate and are fed back into the
 LLM agents for the next round.
+
+### Runtime visibility and artifacts
+
+- Each phase of a round now prints explicit progress logs: proposal requests,
+  initial suggestions, post-review refinements, simulation launches, and
+  per-candidate metric summaries (including the blended ranking score).
+- The best-performing candidate of the entire run is mirrored under
+  `<simu_folder>/results/best/` with a `summary.json`, the hydrograph plot, and
+  per-event figures for quick inspection. Individual EF5 stdout/stderr logs are
+  also captured in `<candidate>/logs/ef5.log`.
+- Parallel simulations respect a configurable worker cap (`max_workers` on the
+  manager) and default to the available CPU count to avoid resource contention
+  when exploring many candidates.

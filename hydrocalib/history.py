@@ -69,7 +69,7 @@ class HistoryStore:
                     full_metrics: Dict[str, Any],
                     params: Dict[str, float],
                     round_index: int,
-                    candidate_index: int) -> None:
+                    candidate_index: int) -> bool:
         current_best = self.best_metrics.get("aggregate_metrics", {}).get("NSE", float("-inf")) if self.best_metrics else float("-inf")
         candidate_score = aggregate_metrics.get("NSE", float("-inf"))
         if candidate_score > current_best:
@@ -81,3 +81,5 @@ class HistoryStore:
                 "full_metrics": full_metrics,
                 "params": params,
             }
+            return True
+        return False

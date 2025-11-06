@@ -21,17 +21,18 @@ def plot_hydrograph_with_precipitation(csv_path: str, show: bool = True) -> str:
     valid_data = df.dropna(subset=['Discharge(m^3 s^-1)', 'Observed(m^3 s^-1)'])
     if valid_data.empty:
         cc = float('nan')
+        nsce = float('nan')
     else:
         sim = valid_data['Discharge(m^3 s^-1)'].to_numpy()
         obs = valid_data['Observed(m^3 s^-1)'].to_numpy()
         cc = safe_corrcoef(sim, obs)
-
-    observed = valid_data['Observed(m^3 s^-1)']
-    simulated = valid_data['Discharge(m^3 s^-1)']
-    mean_observed = observed.mean()
-    numerator = np.sum((observed - simulated) ** 2)
-    denominator = np.sum((observed - mean_observed) ** 2)
-    nsce = 1 - (numerator / denominator) if denominator else float('nan')
+        mean_observed = float(np.mean(obs)) if obs.size else float('nan')
+        if obs.size < 2 or not np.isfinite(mean_observed):
+            nsce = float('nan')
+        else:
+            numerator = float(np.nansum((obs - sim) ** 2))
+            denominator = float(np.nansum((obs - mean_observed) ** 2))
+            nsce = 1 - (numerator / denominator) if denominator else float('nan')
 
     plt.rcParams.update({'font.family': 'serif', 'font.size': 16})
     fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
@@ -195,7 +196,7 @@ def plot_event_windows(csv_path: str,
             axp_lin = ax_lin.twinx()
             axp_lin.bar(sub.index, sub[precip_col], width=width_days, color="skyblue", alpha=0.6, label="Precipitation")
             axp_lin.set_ylabel("Precipitation (mm/h)", color="skyblue")
-            if np.isfinite(max_precip):
+            if np.isfinite(max_precip) and max_precip > 0:
                 axp_lin.set_ylim(max_precip * 2, 0)
         ax_lin.set_ylabel("Streamflow (m³/s)")
 
@@ -248,7 +249,7 @@ def plot_event_windows(csv_path: str,
             axp_log = ax_log.twinx()
             axp_log.bar(sub.index, sub[precip_col], width=width_days, color="skyblue", alpha=0.6, label="Precipitation")
             axp_log.set_ylabel("Precipitation (mm/h)", color="skyblue")
-            if np.isfinite(max_precip):
+            if np.isfinite(max_precip) and max_precip > 0:
                 axp_log.set_ylim(max_precip * 2, 0)
         ax_log.set_ylabel("Streamflow (m³/s) [log]")
         ax_log.set_xlabel("Time")
