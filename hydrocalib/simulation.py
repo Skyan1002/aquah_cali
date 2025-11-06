@@ -38,7 +38,7 @@ class SimulationRunner:
                  simu_folder: str = DEFAULT_SIM_FOLDER,
                  ef5_executable: str = "./EF5/bin/ef5",
                  gauge_num: str = DEFAULT_GAUGE_NUM):
-        self.simu_folder = simu_folder
+        self.simu_folder = Path(simu_folder).resolve()
         self.ef5_executable = self._resolve_executable(ef5_executable)
         self.gauge_num = gauge_num
         self._control_template = self._load_template()
@@ -54,7 +54,7 @@ class SimulationRunner:
         else:
             candidates.extend([
                 PACKAGE_ROOT / exe_path,
-                Path(self.simu_folder) / exe_path,
+                self.simu_folder / exe_path,
                 Path.cwd() / exe_path,
             ])
         for cand in candidates:
@@ -63,7 +63,7 @@ class SimulationRunner:
         return str(exe)
 
     def _load_template(self) -> str:
-        control_path = Path(self.simu_folder) / "control.txt"
+        control_path = self.simu_folder / "control.txt"
         if not control_path.exists():
             raise FileNotFoundError(f"Base control.txt not found at {control_path}")
         return control_path.read_text()
@@ -80,23 +80,23 @@ class SimulationRunner:
         return content
 
     def _write_control_file(self, content: str, round_index: int, candidate_index: int) -> str:
-        out_dir = Path(self.simu_folder) / "controls" / f"cali_{round_index:03d}" / f"cand_{candidate_index:02d}"
+        out_dir = self.simu_folder / "controls" / f"cali_{round_index:03d}" / f"cand_{candidate_index:02d}"
         out_dir.mkdir(parents=True, exist_ok=True)
         control_path = out_dir / "control.txt"
         control_path.write_text(content)
-        return str(control_path)
+        return str(control_path.resolve())
 
     def _output_dir(self, round_index: int, candidate_index: int) -> str:
-        out_dir = Path(self.simu_folder) / "results" / f"cali_{round_index:03d}" / f"cand_{candidate_index:02d}"
+        out_dir = self.simu_folder / "results" / f"cali_{round_index:03d}" / f"cand_{candidate_index:02d}"
         out_dir.mkdir(parents=True, exist_ok=True)
-        return str(out_dir)
+        return str(out_dir.resolve())
 
     def run(self, params: ParameterSet, round_index: int, candidate_index: int) -> SimulationResult:
         output_dir = self._output_dir(round_index, candidate_index)
         control_content = self._render_control(params, output_dir)
         control_file = self._write_control_file(control_content, round_index, candidate_index)
         log_path = Path(output_dir) / "logs" / "ef5.log"
-        run_ef5(control_file, self.ef5_executable, cwd=self.simu_folder, log_path=str(log_path))
+        run_ef5(control_file, self.ef5_executable, cwd=str(self.simu_folder), log_path=str(log_path))
         csv_path = self._locate_csv(output_dir)
         if csv_path is None:
             raise FileNotFoundError(f"Simulation output CSV not found in {output_dir}")
